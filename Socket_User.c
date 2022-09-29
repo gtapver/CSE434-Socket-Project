@@ -15,8 +15,6 @@
 #include <unistd.h>     // for close()
 #include "defns.h"
 
-#define TWEETMAX 140      // Longest tweet to send
-
 void DieWithError( const char *errorMessage ) // External error handling function
 {
     perror( errorMessage );
@@ -30,16 +28,6 @@ void printMenu(){
 	printf("3) Stop Following User\n");
 	printf("4) Tweet to Followers\n");
 	printf("Q) Quit\n");
-	return;
-}
-
-void registerUser(char *ip_ports){
-	printf("\n\nRegistering with tracker\n\n");
-
-	struct message registerMessage = {.type=REQUEST, .command=REGISTER, .status=INPROGRESS, .message=ip_ports}; 
-	
-	printf("\nType of Message: %d\nCommand: %d\nStatus: %d\nMessage: %s\n", registerMessage.type, registerMessage.command, registerMessage.status, registerMessage.message);
-	printf("\n\nFinished Registering\n\n");
 	return;
 }
 
@@ -83,20 +71,21 @@ int main( int argc, char *argv[] )
     unsigned int fromSize;           // In-out of address size for recvfrom()
     char *servIP;                    // IP address of server
     char *string = NULL;         // String to send to Server
-    size_t stringLen = TWEETMAX;               // Length of string to tweet
+    size_t stringLen = MAX_MESSAGE;               // Length of string to tweet
     int respStringLen;               // Length of received response
+    
+    struct sockaddr_in servFacingAddr;
+    struct sockaddr_in inputAddr;
+    struct sockaddr_in outputAddr;
+    char *localHandle;
+    char *localIP;
+    unsigned short servFacingPort;  //local server facing port
+    unsigned short inputPort;     //local input port
+    unsigned short outputPort;    //local output port
 
-    string = (char *) malloc( TWEETMAX );
-
-    registerUser("255.255.255.255 4000 5000 6000");
-    if (argc < 3)    // Test for correct number of arguments
-    {
-        fprintf( stderr, "Usage: %s <Server IP address> <Echo Port>\n", argv[0] );
-        exit( 1 );
-    }
-
-    servIP = argv[ 1 ];  // First arg: server IP address (dotted decimal)
-    servPort = atoi( argv[2] );  // Second arg: Use given port
+    string = (char *) malloc( MAX_MESSAGE );
+    servIP = "10.120.70.145";  //server IP address (dotted decimal)
+    servPort = atoi( "46499" );  //Use given port
 
     printf( "client: Arguments passed: server IP %s, port %d\n", servIP, servPort );
 
@@ -110,6 +99,54 @@ int main( int argc, char *argv[] )
     servAddr.sin_addr.s_addr = inet_addr( servIP ); // Set server's IP address
     servAddr.sin_port = htons( servPort );      // Set server's port
 
+    //Register the User with the server
+    printf("\nPlease select handle, IP address, and ports to use");
+    printf("\nInput in format @<handle> <IP Address> <Server Facing Port> <Input Port> <Output Port>:\n");
+    if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 )
+    {
+	//Instantiate field
+	char tmp[50]= "000";
+	printf("Field: %s", tmp);
+	//Read Handle
+	localHandle = strtok(string, " ");
+	if(localHandle[0] == '@' && strlen(localHandle) <= MAX_HANDLE+1 && strlen(localHandle) > 2){
+		strcat(tmp, localHandle); 
+		strcat(tmp, "$");
+	}
+	else
+		DieWithError("client: invalid handle  ");
+	//Read IP
+	localIP = strtok(NULL, " ");
+	strcat(tmp, localIP);
+	//Read Ports
+	char *token;
+	//read server facing port
+	token = strtok(NULL, " ");
+	servFacingPort = atoi(token);
+	strcat(tmp, "$");
+	strcat(tmp, token);
+	//read input port
+	token = strtok(NULL, " ");
+	inputPort = atoi(token);
+	strcat(tmp, "$");
+	strcat(tmp, token);
+	//read output port
+	token = strtok(NULL, " ");
+	outputPort = atoi(token);
+	strcat(tmp, "$");
+	strcat(tmp, token);
+        //send entire message to tracker
+	string = tmp;
+	printf("\n%s\n", string);
+	string[ (int) strlen( string) - 1] = '\0';
+	if( sendto( sock, string, strlen( string ), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) )
+		DieWithError( "client: sendto() sent a different number of bytes than expected" );
+    }
+    else
+	DieWithError(" client: error reading handle, IP, or ports\n");
+
+
+
     while(1)
     {
 	printMenu();
@@ -118,7 +155,7 @@ int main( int argc, char *argv[] )
 		string[ (int) strlen( string) - 1] = '\0';
 	}
 	else
-		DieWithError(" client: error reading string to echo\n" );
+		DieWithError(" client: error reading option selected\n" );
 
 
 	if(strcmp(string, "1") == 0)

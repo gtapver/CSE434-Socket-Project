@@ -26,20 +26,15 @@ void DieWithError( const char *errorMessage ) // External error handling functio
 int main( int argc, char *argv[] )
 {
     int sock;                        // Socket
-    struct sockaddr_in servAddr; // Local address of server
-    struct sockaddr_in clntAddr; // Client address
+    struct sockaddr_in echoServAddr; // Local address of server
+    struct sockaddr_in echoClntAddr; // Client address
     unsigned int cliAddrLen;         // Length of incoming message
     char echoBuffer[ ECHOMAX ];      // Buffer for echo string
     unsigned short echoServPort;     // Server port
     int recvMsgSize;                 // Size of received message
+    struct Node userList;
 
-    if( argc != 2 )         // Test for correct number of parameters
-    {
-        fprintf( stderr, "Usage:  %s <UDP SERVER PORT>\n", argv[ 0 ] );
-        exit( 1 );
-    }
-
-    echoServPort = atoi(argv[1]);  // First arg: local port
+    echoServPort = atoi("46499");  // First arg: local port
 
     // Create socket for sending/receiving datagrams
     if( ( sock = socket( PF_INET, SOCK_DGRAM, IPPROTO_UDP ) ) < 0 )
