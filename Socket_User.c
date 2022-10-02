@@ -59,14 +59,18 @@ int main( int argc, char *argv[] )
     struct sockaddr_in servFacingAddr;
     struct sockaddr_in inputAddr;
     struct sockaddr_in outputAddr;
-    char *localHandle;
-    char *localIP;
     unsigned short servFacingPort;  //local server facing port
     unsigned short inputPort;     //local input port
     unsigned short outputPort;    //local output port
     char *thisHandle = (char *) malloc(MAX_HANDLE);
+    char *thisIP = (char *) malloc(MAX_IP);
     string = (char *) malloc( MAX_MESSAGE );
-    servIP = "10.120.70.106";  //server IP address (dotted decimal)
+    //servIP = "10.120.70.106";  //set server IP address (dotted decimal)
+    if( argc < 2){ //make sure the ip is passed on the arguments
+	fprintf( stderr, "Usage: %s <Server IP address>\n", argv[0] );
+	exit(1);
+    }
+    servIP = argv[ 1 ];
     servPort = atoi( "46499" );  //Use given port
 
     printf( "client: Arguments passed: server IP %s, port %d\n", servIP, servPort );
@@ -89,50 +93,52 @@ int main( int argc, char *argv[] )
 	//Instantiate field
 	char tmp[50]= "000";
 	//Read Handle
-	localHandle = strtok(string, " ");
-	if(localHandle[0] == '@' && strlen(localHandle) <= MAX_HANDLE+1 && strlen(localHandle) > 2){
-		strcat(tmp, localHandle); 
+	strcpy(thisHandle, strtok(string, " "));
+	//ensure the handle is valid
+	if(thisHandle[0] == '@' && strlen(thisHandle) <= MAX_HANDLE+1 && strlen(thisHandle) >= 2){
+		//pass the handle to the message
+		strcat(tmp, thisHandle); 
 		strcat(tmp, "$");
-		strcat(thisHandle, localHandle);
 	}
 	else
 		DieWithError("client: invalid handle  ");
-	//Read IP
-	localIP = strtok(NULL, " ");
-	strcat(tmp, localIP);
-	//Read Ports
-	char *token;
-	//read server facing port
-	token = strtok(NULL, " ");
+	//read and pass IP
+	strcpy(thisIP, strtok(NULL, " "));
+	strcat(tmp, thisIP);
+	//read and pass ports
+	char *token = (char *) malloc( MAX_MESSAGE);
+	//read and pass server facing port
+	strcpy(token, strtok(NULL, " "));
 	servFacingPort = atoi(token);
 	strcat(tmp, "$");
 	strcat(tmp, token);
-	//read input port
-	token = strtok(NULL, " ");
+	//read and pass input port
+	strcpy(token, strtok(NULL, " "));
 	inputPort = atoi(token);
 	strcat(tmp, "$");
 	strcat(tmp, token);
-	//read output port
-	token = strtok(NULL, " ");
+	//read and pass output port
+	strcpy(token, strtok(NULL, " "));
 	outputPort = atoi(token);
 	strcat(tmp, "$");
 	strcat(tmp, token);
-        //send entire message to tracker
+	free(token);
+        //store the temporary string in the message buffer
 	string = tmp;
-	//printf("\nSending following string ``%s''\n", string);
-	//replace new line
 	string[ (int) strlen( string) - 1] = '\0';
+	//send message
 	if( sendto( sock, string, strlen( string ), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) )
 		DieWithError( "client: sendto() sent a different number of bytes than expected" );
 	fromSize = sizeof( fromAddr );
+	//receive message
 	if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE )
 		DieWithError("client: Error: received a packet from unknown source.\n");
 	string[ respStringLen ] = '\0';
 	if( servAddr.sin_addr.s_addr != fromAddr.sin_addr.s_addr )
 		DieWithError("client: Error: received a packet from unknown source.\n");
-	if(strcmp(string, "103") == 0)
+	if(strcmp(string, "103") == 0) //make sure the registration succeeded
 		printf("\nclient: successfully registered with tracker.\n");
-	else
+	else //the registration failed, exit the program
 		DieWithError("client: Error: registration failed.\n");
     }
     else
@@ -140,22 +146,26 @@ int main( int argc, char *argv[] )
 
 
 
-    while(1)
+    while(1) //read inputs from user
     {
 	printMenu();
+	//read input
 	if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 )
 	{
 		string[ (int) strlen( string) - 1] = '\0';
 	}
 	else
 		DieWithError(" client: error reading option selected" );
-
+	
+	//the selection was stored in the message buffer
 	if(strcmp(string, "1") == 0){ //query
 		strcpy(string, "010"); //message being sent, this is just the flags
 		string[ (int) strlen( string )] = '\0';
+		//send message
 		if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
 			DieWithError( "client: Error: unable to send message");
 		fromSize = sizeof( fromAddr );
+		//recv message
 		if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
 			DieWithError("client: Error: received a packet from unknown source. ");
 		if(string[0] == '1' && string[1] == '1' && (string[2] == '1' || string[2] == '3')){//ensure received message has valid flags
@@ -189,31 +199,34 @@ int main( int argc, char *argv[] )
 		else
 			DieWithError("client: Error: unknown message received. ");
 	}
-	else if(strcmp(string, "2") == 0){
+	else if(strcmp(string, "2") == 0){ //follow user
 		printf("\nPlease enter the desired handles in the form of: \n@<Handle of new follower> @<Handle of user to follow>\n");
+		//read handles
 		if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 ){
 			string[ (int) strlen(string)] = '\0';
-			char *tmp = (char*) malloc(MAX_HANDLE);
-			strcpy(tmp, "020");
-			char *tkn = strtok(string, " ");
+			char *tmp = (char*) malloc(MAX_HANDLE*2 + 5); //temporary buffer for handles
+			strcpy(tmp, "020"); //flags for starting a follow request
+			char *tkn = strtok(string, " "); //first handle
 			strcat(tmp, tkn);
 			strcat(tmp, "$");
-			tkn = strtok(NULL, "\n");
+			tkn = strtok(NULL, "\n"); //second handle
 			strcat(tmp, tkn);
 			strcat(tmp, "$");
-			strcpy(string, tmp);
+			strcpy(string, tmp); //store the message into the message buffer
 			string[ (int) strlen( string )] = '\0';
-			free(tmp);
-			//printf("Sending following string: ``%s''\n", string);
+			free(tmp); //free the temporary buffer
+			//send message
 			if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
 				DieWithError("client: Error: Socket Error. ");
+			//receive message
+			fromSize = sizeof( fromAddr );
 			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
-			if(string[0] != '1' && string[1] != '2')
+			if(string[0] != '1' && string[1] != '2') //the flags were not valid
 				DieWithError("client: Error: received a packet from unknown source. ");
-			else if(string[2] == '3')
+			else if(string[2] == '3') //the follow request was a success
 				printf("client: successfully followed\n");
-			else if(string[2] == '2')
+			else if(string[2] == '2') //the follow request was a failure
 				printf("client: failed to follow\n");
 			else
 				DieWithError("client: Error: unable to read message. ");
@@ -221,31 +234,34 @@ int main( int argc, char *argv[] )
 		else
 			DieWithError("client: Error: invalid input. ");
 	}
-	else if(strcmp(string, "3") == 0){
+	else if(strcmp(string, "3") == 0){ //drop user
                 printf("\nPlease enter the desired handles in the form of: \n@<Handle of follower> @<Handle of user to stop following>\n");
-                if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 ){
+                //read handles
+		if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 ){
                         string[ (int) strlen(string)] = '\0';
-                        char *tmp = (char*) malloc(MAX_HANDLE);
-                        strcpy(tmp, "030");
-                        char *tkn = strtok(string, " ");
+                        char *tmp = (char*) malloc(MAX_HANDLE*2 +5); //temporary buffer for handles
+                        strcpy(tmp, "030"); //flags for starting a drop request
+                        char *tkn = strtok(string, " "); //first handle
                         strcat(tmp, tkn);
                         strcat(tmp, "$");
-                        tkn = strtok(NULL, "\n");
+                        tkn = strtok(NULL, "\n"); //second handle
                         strcat(tmp, tkn);
                         strcat(tmp, "$");
-                        strcpy(string, tmp);
+                        strcpy(string, tmp); //store the message into the message buffer
                         string[ (int) strlen( string )] = '\0';
                         free(tmp);
-                        //printf("Sending following string: ``%s''\n", string);
+                        //send message
                         if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
                                 DieWithError("client: Error: Socket Error. ");
-                        if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+                        //receive message
+                        fromSize = sizeof( fromAddr );
+			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
-                        if(string[0] != '1' && string[1] != '3')
+                        if(string[0] != '1' && string[1] != '3') //the flags are not valid
                                 DieWithError("client: Error: received a packet from unknown source. ");
-                        else if(string[2] == '3')
+                        else if(string[2] == '3') //the drop request was a success
                                 printf("client: successfully Unfollowed\n");
-                        else if(string[2] == '2')
+                        else if(string[2] == '2') //the dorp request was a failure
                                 printf("client: failed to unfollow\n");
                         else
                                 DieWithError("client: Error: unable to read message. ");
@@ -253,26 +269,28 @@ int main( int argc, char *argv[] )
                 else
                         DieWithError("client: Error: invalid input. ");
 	}
-	else if(strcmp(string, "4") == 0)
+	else if(strcmp(string, "4") == 0) //this aspect is not yet implemented into the program
 		tweet();
-	else if(strcmp(string, "Q") == 0 || strcmp(string, "q") == 0){
-		strcpy(string, "060");
-		strcat(string, thisHandle);
+	else if(strcmp(string, "Q") == 0 || strcmp(string, "q") == 0){ //quit
+		strcpy(string, "060"); //flags for starting a quitting request
+		strcat(string, thisHandle); //the stored handle is sent
 		strcat(string, "$");
-		//printf("Sending following string: ``%s''\n", string);
+		//send message
 		if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
                                DieWithError("client: Error: Socket Error. ");
+		//receive message
+		fromSize = sizeof( fromAddr );
 		if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                 DieWithError("client: Error: received a packet from unknown source. ");
-		if(string[0] != '1' && string[1] != '6')
+		if(string[0] != '1' && string[1] != '6') //the flags are not valid
                                 DieWithError("client: Error: received a packet from unknown source. ");
-		else if(string[2] == '3')
+		else if(string[2] == '3') //success
 			printf("client: successfully quite Tweeter\n");
-		else
+		else //faiure
 			printf("client: could not delete user from database\n");
-		break; //exit loop
+		break; //exit while loop
 	}
-	else
+	else //none of the selected options are valid
 		printf("\n\nPlease Choose Valid Choice\n\n");
     }
     quitTweeter();

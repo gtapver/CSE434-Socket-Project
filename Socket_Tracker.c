@@ -31,9 +31,9 @@ int main( int argc, char *argv[] )
     char buffer[ MAX_MESSAGE ];      // Buffer for echo string
     unsigned short servPort;     // Server port
     int recvMsgSize;                 // Size of received message
-    struct Node *userList = mkNewNode();
-    int userCount = 0;
-    servPort = atoi("46499");  // First arg: local port
+    struct Node *userList = mkNewNode(); //pointer to the user list
+    int userCount = 0; //count of active users
+    servPort = atoi("46499");  //local port (set)
 
     // Create socket for sending/receiving datagrams
     if( ( sock = socket( PF_INET, SOCK_DGRAM, IPPROTO_UDP ) ) < 0 )
@@ -66,58 +66,66 @@ int main( int argc, char *argv[] )
 
 	bool passed;
 	if(buffer[0] == '0' && buffer[2] == '0'){//request start
+		//temporary variable used in future commands
 		char *follower;
 		char *following;
 		int result;
-		switch(buffer[1]) {
+		switch(buffer[1]) { //the first three characters in the message specify: <Request/Response> <Type of command> <Status>
 			case '0': //register
-				if(buffer[2] != '0'){
-					printf("\nInvalid\n");
+				if(buffer[2] != '0'){ //the message should be a start command message, otherwise return an error message later
 					passed = false;
 				}
 				else{
 					struct User *newUser = mkNewUser();
-					memmove(buffer, buffer+3, strlen(buffer));
-					strcpy(newUser->handle, strtok(buffer, "$"));
-					strcpy(newUser->ip,  strtok(NULL, "$"));
-					strcpy(newUser->servPort, strtok(NULL, "$"));
-					strcpy(newUser->inputPort, strtok(NULL, "$"));
-					strcpy(newUser->outputPort, strtok(NULL, "\0"));
-					if(insert(userList, newUser) > 0){
+					memmove(buffer, buffer+3, strlen(buffer)); //remove the flags
+					strcpy(newUser->handle, strtok(buffer, "$")); //the first segment will be the handle
+					newUser->handle[strlen(newUser->handle)] = '\0';
+					//printf("\n%s\n", newUser->handle);
+					strcpy(newUser->ip,  strtok(NULL, "$"));  //the second segment will be the ip
+					//printf("\n%s\n", newUser->handle);
+					strcpy(newUser->servPort, strtok(NULL, "$")); //the third segment will be the server facing port
+					strcpy(newUser->inputPort, strtok(NULL, "$")); //the fourth segment will be the input port
+					strcpy(newUser->outputPort, strtok(NULL, "\0")); //the fifth segment will be the output port
+					if(insert(userList, newUser) > 0){ //if the insert message succeeded
 						passed = true;
-						userCount++;
+						userCount++; //increment user count
 					}
 					else
 						passed = false;
 				}
-				strcpy(buffer, "10");
+				strcpy(buffer, "10"); //flags for "response register"
 				if(passed)
-					strcat(buffer, "3");
+					strcat(buffer, "3"); //flag for success
 				else
-					strcat(buffer, "2");
+					strcat(buffer, "2"); //flag for failure
+				//send back message
+				printf("server: sending following string ``%s''", buffer);
 				if( sendto( sock, buffer, strlen( buffer ), 0, (struct sockaddr *) &clntAddr, sizeof( clntAddr ) ) != strlen( buffer ) )
 					DieWithError( "server: sendto() sent a different number of bytes than expected" );
+				//print updated active user list
 				printf("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nActive Users\n");
 				print(userList);
 				printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 				break;
 			case '1': //query
-				if(buffer[2] != '0'){
+				if(buffer[2] != '0'){ //the message should be a start command message, otherwise return an error message later
 					printf("\nInvalid\n");
 					passed = false;
 				}
 				else{
+					//Something to note: there might be more handles than can be fit into a single message
+					//To resolve this, we will be sending multiple messages as needed, including whether more will be sent in the flags
 					int maxHandleInMessage = (MAX_MESSAGE-4)/(MAX_HANDLE+1); //measure how many handles can fit into the buffer
-					bool moreOutgoing;
-					int count = 0;
+					bool moreOutgoing; //boolean to see if more message need to be sent
+					int count = 0; //count of handles sent
 					strcpy(buffer, "11");//flags for reply query
 					if(userCount > maxHandleInMessage){//there are more users than can be fit into a single message
-						moreOutgoing = true;
-						strcat(buffer, "1");
+						moreOutgoing = true; 
+						strcat(buffer, "1"); //flag for "In-Progress", which the client will read as signifying that they should read more
 					}
 					else{ //all handles can fit into one message
 						moreOutgoing = false;
-						strcat(buffer, "3");
+						strcat(buffer, "3"); //flag for "Complete", which the client will read as signifying that they do not need to read more
 					}
 					int tmplen = snprintf( NULL, 0, "%d", userCount);//length of number
 					char* tmp = malloc(tmplen+1);//temporary buffer for the sake of storing the userCount in string form
@@ -133,87 +141,93 @@ int main( int argc, char *argv[] )
 						count++;
 					}
 					printf("server: sending following string ``%s''\n", buffer);
+					//send the message
 					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 						DieWithError("server: sentto() sent a different number of bytes than expected" );
-					while(moreOutgoing){
-						strcpy(buffer, "11");
+					while(moreOutgoing){ //there are more handles that need to be sent
+						strcpy(buffer, "11"); //"response query"
 						if(count  >= userCount){ //we have traversed the entire list
 							moreOutgoing = false;
-							strcat(buffer, "3");
+							strcat(buffer, "3"); // "complete"
 						}
 						else
-							strcat(buffer, "1");
-						for(int i = 0; count < userCount && i < maxHandleInMessage && nodeptr != NULL; i++){
+							strcat(buffer, "1"); // "in-progress"
+						for(int i = 0; count < userCount && i < maxHandleInMessage && nodeptr != NULL; i++){ //until NULL, max handles, or all handles (see above)
 							strcat(buffer, nodeptr->thisUser->handle);
 							strcat(buffer, "$");
 							nodeptr = nodeptr->nextNode;
 							count++;
 						}
 						printf("server: sending following string ``%s''\n", buffer);
+						//send message
 						if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 							DieWithError("server: setnto() sent a different number of bytes than expected" );
 					}
 				}
 				break;
 			case '2': //Follow
-				memmove(buffer, buffer+3, strlen(buffer));
-				follower = strtok(buffer, "$");
-				following = strtok(NULL, "$");
-				result = follow(userList, follower, following);
-				strcpy(buffer, "12");
-				if(result > 0)
-					strcat(buffer, "3");
-				else
-					strcat(buffer, "2");
+				memmove(buffer, buffer+3, strlen(buffer)); //remove the flags
+				follower = strtok(buffer, "$"); //follower is the first field
+				following = strtok(NULL, "$"); //followee is the second field
+				result = follow(userList, follower, following); //follower follows the followee
+				strcpy(buffer, "12"); //flags for response and follow
+				if(result > 0) //the follow() command succeeded
+					strcat(buffer, "3"); //success
+				else //the follow() command failed
+					strcat(buffer, "2"); //failure
 				printf("server: sending following string ``%s''\n", buffer);
                                 printf("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nActive Users\n");
                                 print(userList);
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+				//send the message
 				if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 					DieWithError("server: setnto() sent a different number of bytes than expected" );
 				break;
 			case '3': //Drop
-                                memmove(buffer, buffer+3, strlen(buffer));
-                                follower = strtok(buffer, "$");
-                                following = strtok(NULL, "$");
-                                result = drop(userList, follower, following);
-                                strcpy(buffer, "13");
-                                if(result > 0)
-                                        strcat(buffer, "3");
-                                else
-                                        strcat(buffer, "2");
+                                memmove(buffer, buffer+3, strlen(buffer)); //remove the flags
+                                follower = strtok(buffer, "$"); //follower is the first field
+                                following = strtok(NULL, "$"); //followee is the second field
+                                result = drop(userList, follower, following); //follower drops the followee
+                                strcpy(buffer, "13"); //flags for response and drop
+                                if(result > 0) //the drop() command succeeded
+                                        strcat(buffer, "3"); //success
+                                else //the drop() command failed
+                                        strcat(buffer, "2"); //failure
 				printf("server: sending following string ``%s''\n", buffer);
                                 printf("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nActive Users\n");
                                 print(userList);
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-                                if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+                                //send message
+				if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
                                         DieWithError("server: setnto() sent a different number of bytes than expected" );
 				break;
 			case '4': //tweet
 				break;
 			case '6': //exit
-                                memmove(buffer, buffer+3, strlen(buffer));
-                                char *user = strtok(buffer, "$");
-                                result = exitUser(userList, user);
-                                strcpy(buffer, "16");
-                                if(result > 0){
-                                        strcat(buffer, "3");
-					userCount--; 
+                                memmove(buffer, buffer+3, strlen(buffer)); //remove the flags
+                                char *user = strtok(buffer, "$"); //temp buffer for user to be deleted
+                                result = exitUser(userList, user); //user is deleted from the user list
+                                strcpy(buffer, "16"); //flags for response and exit
+                                if(result > 0){ //the exitUser() command succeeded
+                                        strcat(buffer, "3"); //success
+					userCount--;  //decrement the user count
 				}
-                                else
-                                        strcat(buffer, "2");
+                                else //the exitUser() command failed
+                                        strcat(buffer, "2"); //failure
                                 printf("server: sending following string ``%s''\n", buffer);
                                 printf("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\nActive Users\n");
                                 print(userList);
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-                                if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+                                //send messsage
+				if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
                                         DieWithError("server: setnto() sent a different number of bytes than expected" );
 				break;
 		}
 	}
-	else{
+	else{ //the message received specified an ongoing transaction
 		printf("No Ongoing requests\n");
-		strcpy(buffer, "102");
+		strcpy(buffer, "102"); //general failure message
+		//send message
 		if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 			DieWithError("server: setnto() sent a different number of bytes than expected" );
 	}
