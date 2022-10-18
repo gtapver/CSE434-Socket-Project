@@ -21,7 +21,7 @@
 #define MAX_PORTS 3
 #define MAX_PORT_LENGTH 5
 #define MAX_HANDLE 15
-#define MAX_MESSAGE 140+15+4
+#define MAX_MESSAGE 1024 
 
 
 
@@ -49,10 +49,16 @@ struct User *mkNewUser(){ //create an empty user struct with NULL follower list
 	newUser->followerList = NULL;
 	return newUser;
 }
-void killUser(struct User *user){ //frees the specified user. The user will be deleted EVERYWHERE, so make sure to drop the user from all the follower lists before calling
-	user->followerList = NULL; //NULL the pointer
+/*void killUser(struct User *user){ //frees the specified user. The user will be deleted EVERYWHERE, so make sure to drop the user from all the follower lists before calling
+	struct Node *dlt = NULL;
+	struct Node *nodePTR = user->followerList;
+	while(nodePTR != NULL){
+		dlt = nodePTR;
+		nodePTR = nodePTR->nextNode;
+		killNode(dlt);
+	}
 	free(user); //free structure
-}
+} */
 struct Node *mkNewNode(){ //instantiates a new node. This will be called to make a new user list or to add to an existing list. Note that an empty list will have one node with an empty user handle ("").
 	struct Node *newNode = (struct Node*) malloc(sizeof(struct Node) ); ///memory allocate the structure
 	//Instantiate the elements
@@ -67,7 +73,16 @@ void killNode(struct Node *node){ //frees the specified node. The node will NOT 
 	node->thisUser = NULL;
 	free(node);
 }
-
+void killUser(struct User *user){
+	struct Node *dlt = NULL;
+	struct Node *nodePTR = user->followerList;
+	while(nodePTR != NULL){
+		dlt = nodePTR;
+		nodePTR = nodePTR->nextNode;
+		killNode(dlt);
+	}
+	free(user);
+}
 int insert(struct Node *list, struct User *insertedUser){ //Insert a User object into a linked list. This can be used either for the user list or follower list
 	struct Node *prevNode = NULL;
 	struct Node *nodeptr = list;

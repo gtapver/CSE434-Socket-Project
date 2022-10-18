@@ -145,6 +145,17 @@ int main( int argc, char *argv[] )
 	DieWithError(" client: error reading handle, IP, or ports\n");
 
 
+    //setup the ports
+    // Construct the peer address structure. Leave the peer's IP address and port number to be set later.
+    memset( &outputAddr,0, sizeof(outputAddr));
+    outputAddr.sin_family = AF_INET;
+    
+    // Construct local address structure
+    memset( &inputAddr, 0, sizeof(inputAddr));
+    inputAddr.sin_family = AF_INET;
+    inputAddr.sin_addr.s_addr =htonl( INADDR_ANY );
+    inputAddr.sin_port = htons( inputPort );            
+
 
     while(1) //read inputs from user
     {
