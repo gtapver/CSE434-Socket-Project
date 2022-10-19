@@ -115,7 +115,7 @@ int main( int argc, char *argv[] )
 				else{
 					//Something to note: there might be more handles than can be fit into a single message
 					//To resolve this, we will be sending multiple messages as needed, including whether more will be sent in the flags
-					int maxHandleInMessage = (MAX_MESSAGE-4)/(MAX_HANDLE+1); //measure how many handles can fit into the buffer
+					int maxHandleInMessage = (MAX_MESSAGE-7)/(MAX_HANDLE+1); //measure how many handles can fit into the buffer
 					bool moreOutgoing; //boolean to see if more message need to be sent
 					int count = 0; //count of handles sent
 					strcpy(buffer, "11");//flags for reply query
@@ -199,9 +199,60 @@ int main( int argc, char *argv[] )
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
                                 //send message
 				if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
-                                        DieWithError("server: setnto() sent a different number of bytes than expected" );
+                                        DieWithError("server: sentto() sent a different number of bytes than expected" );
 				break;
 			case '4': //tweet
+				memmove(buffer, buffer+3, strlen(buffer));
+				following = strtok(buffer, "$"); //handle in this field
+				struct User *handle = findUser(userList, following); //find the user struct that matches the handle provided
+				if(handle == NULL){ //the user was not found, do not send any tweet
+					strcpy(buffer, "142");
+					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+						DieWithError("server: sendto() sent a different number of bytes than expected");
+				}
+				else if(handle->followCount <= 0){ //the user was found, but has no followers, no tweet can be sent
+					strcpy(buffer, "143");
+					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+						DieWithError("server: sendto() sent a different number of bytes than expected");
+				}
+				else{ //user found and has at least one follower, tweet will be sent
+					strcpy(buffer, "141"); //code for tweet in-progress
+                                        int tmplen = snprintf( NULL, 0, "%d", handle->followCount);//length of number
+                                        char* tmp = malloc(tmplen+1);//temporary buffer for the sake of storing the follower count in string form
+                                        snprintf( tmp, tmplen+1, "%d", handle->followCount); //convert the follower count to a string
+                                        strcat(buffer, tmp); //concat the follower count to the message 
+					strcat(buffer, "$");
+					free(tmp);
+					struct Node *fList = handle->followerList;
+					for(int i = 0; i < handle->followCount; i++){ //prepare a list of followers
+						strcat(buffer, fList->thisUser->handle);
+						strcat(buffer, "$");
+						strcat(buffer, fList->thisUser->ip);
+						strcat(buffer, "$");
+						strcat(buffer, fList->thisUser->inputPort);
+						strcat(buffer, "$");
+						fList = fList->nextNode;
+					}
+					//send the list of followers
+					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+						DieWithError("server: sendto() sent a different number of bytes than expected.");
+					bool completed;
+					do{ //reject commands until such as time as the tweet is completed
+						if( ( recvMsgSize = recvfrom( sock, buffer, MAX_MESSAGE, 0, (struct sockaddr *) &clntAddr, &cliAddrLen )) < 0 ) //recover message
+            						DieWithError( "server: recvfrom() failed" );
+        					buffer[ recvMsgSize ] = '\0';
+        					printf( "server: received string ``%s'' from client on IP address %s\n", buffer, inet_ntoa( clntAddr.sin_addr ) );
+						if(strcmp(buffer, "153") == 0)
+							completed = true;
+						else{ //reject the string
+							printf("server: expecting end tweet command: rejecting command\n");
+							strcpy(buffer, "777");//return an unknown code. This is to ensure that any command is cancelled on collecting response.
+							if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
+								DieWithError("server: sendto() sent a different number of bytes than expected.");
+						}
+					}while(!completed);
+				}
+				printf("server: sending following string ``%s''\n", buffer);
 				break;
 			case '6': //exit
                                 memmove(buffer, buffer+3, strlen(buffer)); //remove the flags
@@ -220,7 +271,7 @@ int main( int argc, char *argv[] )
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
                                 //send messsage
 				if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
-                                        DieWithError("server: setnto() sent a different number of bytes than expected" );
+                                        DieWithError("server: sentto() sent a different number of bytes than expected" );
 				break;
 		}
 	}

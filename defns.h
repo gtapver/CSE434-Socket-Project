@@ -32,6 +32,7 @@ struct User{ //structure to hold user information
 	char inputPort[MAX_PORT_LENGTH+1]; //input port
 	char outputPort[MAX_PORT_LENGTH+1]; //output port
 	struct Node *followerList; //linked list of followers
+	int followCount;
 };
 struct Node{ //nodes that will hold the user information and will be implemented for the purposes of a linked list
 	struct Node *lastNode; //previous node in the linked list
@@ -47,18 +48,9 @@ struct User *mkNewUser(){ //create an empty user struct with NULL follower list
 	strcpy(newUser->inputPort, "");
 	strcpy(newUser->outputPort, "");
 	newUser->followerList = NULL;
+	newUser->followCount = 0;
 	return newUser;
 }
-/*void killUser(struct User *user){ //frees the specified user. The user will be deleted EVERYWHERE, so make sure to drop the user from all the follower lists before calling
-	struct Node *dlt = NULL;
-	struct Node *nodePTR = user->followerList;
-	while(nodePTR != NULL){
-		dlt = nodePTR;
-		nodePTR = nodePTR->nextNode;
-		killNode(dlt);
-	}
-	free(user); //free structure
-} */
 struct Node *mkNewNode(){ //instantiates a new node. This will be called to make a new user list or to add to an existing list. Note that an empty list will have one node with an empty user handle ("").
 	struct Node *newNode = (struct Node*) malloc(sizeof(struct Node) ); ///memory allocate the structure
 	//Instantiate the elements
@@ -82,6 +74,16 @@ void killUser(struct User *user){
 		killNode(dlt);
 	}
 	free(user);
+}
+struct User* findUser(struct Node *userList, char* user){
+        struct Node *nodeptr = userList;
+        while(nodeptr != NULL){
+                if(strcmp(user, nodeptr->thisUser->handle)==0)
+                        return nodeptr->thisUser;
+                else
+                        nodeptr = nodeptr->nextNode;
+        }
+        return NULL;
 }
 int insert(struct Node *list, struct User *insertedUser){ //Insert a User object into a linked list. This can be used either for the user list or follower list
 	struct Node *prevNode = NULL;
@@ -189,10 +191,13 @@ int follow(struct Node *userList, char* follower, char* following){ //this comma
 	}
 	if(flNode == NULL || flgNode == NULL) //either user does not exist
 		return -1;
-	else{
+	else{ //both users exist
 		if(flgNode->thisUser->followerList == NULL) //this user does not yet have a follower list set-up
 			flgNode->thisUser->followerList = mkNewNode(); //make an empty list for the user
-		return insert(flgNode->thisUser->followerList, flNode->thisUser); //do an insert on the follower list
+		int result = insert(flgNode->thisUser->followerList, flNode->thisUser); //do an insert on the follower list
+		if(result > 0)
+			flgNode->thisUser->followCount++;
+		return result;
 	}
 }
 
@@ -238,6 +243,7 @@ int drop(struct Node *userList, char* follower, char* following){ //remove a use
 					nodeptr->lastNode->nextNode = NULL; //make the previous follower the tail follower
 					killNode(nodeptr); // kill the follower's node
 				}
+				flgNode->thisUser->followCount--;
 				return 1;
 			}
 			else

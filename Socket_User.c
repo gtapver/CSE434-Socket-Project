@@ -14,6 +14,8 @@
 #include <string.h>     // for memset()
 #include <unistd.h>     // for close()
 #include <stdbool.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #include "defns.h"
 
 void DieWithError( const char *errorMessage ) // External error handling function
@@ -29,7 +31,7 @@ void printMenu(){
 	printf("3) Stop Following User\n");
 	printf("4) Tweet to Followers\n");
 	printf("Q) Quit\n");
-	printf("Selected Option: ");
+	//printf("Selected Option: ");
 	return;
 }
 
@@ -56,6 +58,7 @@ int main( int argc, char *argv[] )
     size_t stringLen = MAX_MESSAGE;               // Length of string to tweet
     int respStringLen;               // Length of received response
     
+    int inputSock;
     struct sockaddr_in servFacingAddr;
     struct sockaddr_in inputAddr;
     struct sockaddr_in outputAddr;
@@ -63,8 +66,16 @@ int main( int argc, char *argv[] )
     unsigned short inputPort;     //local input port
     unsigned short outputPort;    //local output port
     char *thisHandle = (char *) malloc(MAX_HANDLE);
+    char *rightHandle = (char *) malloc(MAX_HANDLE);
+    strcpy(rightHandle, "");
     char *thisIP = (char *) malloc(MAX_IP);
     string = (char *) malloc( MAX_MESSAGE );
+
+    //setup timeout timer
+    fd_set rfds;
+    struct timeval tv;
+    int retval;
+
     //servIP = "10.120.70.106";  //set server IP address (dotted decimal)
     if( argc < 2){ //make sure the ip is passed on the arguments
 	fprintf( stderr, "Usage: %s <Server IP address>\n", argv[0] );
@@ -154,20 +165,46 @@ int main( int argc, char *argv[] )
     memset( &inputAddr, 0, sizeof(inputAddr));
     inputAddr.sin_family = AF_INET;
     inputAddr.sin_addr.s_addr =htonl( INADDR_ANY );
-    inputAddr.sin_port = htons( inputPort );            
+    inputAddr.sin_port = htons( inputPort );
+            
 
 
     while(1) //read inputs from user
     {
 	printMenu();
-	//read input
-	if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 )
-	{
-		string[ (int) strlen( string) - 1] = '\0';
-	}
-	else
-		DieWithError(" client: error reading option selected" );
-	
+	//read input	
+	do{ //in this loop, we will alternate between reading input and recv from the socket
+		FD_ZERO(&rfds);
+		FD_SET(0, &rfds);
+    		tv.tv_sec = 2;
+    		tv.tv_usec = 0;
+		retval = select(1, &rfds, NULL, NULL, &tv);
+		if(retval == -1) //some error occured
+			DieWithError("client: Error: timer failure\n");
+		else if (retval) //there is some input available
+			if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 ){ //successfully read
+				string[ (int) strlen( string) - 1] = '\0';
+				break;
+			}
+			else
+				DieWithError(" client: error reading option selected" ); //failed to read
+		else{//the timer is finished. we should check for any incoming tweets now
+			FD_ZERO(&rfds);
+			FD_SET(sock, &rfds);
+			//read for half a second
+			tv.tv_sec = 0;
+			tv.tv_usec = 500000;
+			retval = select(sock+1, &rfds, NULL, NULL, &tv); //recv for 0.5 seconds, this is for when there is an incoming tweet
+			if(retval == -1)
+				DieWithError("client: Error: timer failure\n");
+			else if(retval){ //some input available
+				if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+                                        DieWithError("client: Error: received a packet from unknown source. ");
+			}
+			else //nothing to recv
+				printf("\nNo Data\n");
+		}
+	}while(1);
 	//the selection was stored in the message buffer
 	if(strcmp(string, "1") == 0){ //query
 		strcpy(string, "010"); //message being sent, this is just the flags
@@ -208,7 +245,7 @@ int main( int argc, char *argv[] )
 			}
 		}
 		else
-			DieWithError("client: Error: unknown message received. ");
+			printf("\n\nUnknown Message Received. Canceling Command.\n\n");
 	}
 	else if(strcmp(string, "2") == 0){ //follow user
 		printf("\nPlease enter the desired handles in the form of: \n@<Handle of new follower> @<Handle of user to follow>\n");
@@ -234,7 +271,7 @@ int main( int argc, char *argv[] )
 			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
 			if(string[0] != '1' && string[1] != '2') //the flags were not valid
-				DieWithError("client: Error: received a packet from unknown source. ");
+				printf("\n\nUnknown Message Received. Canceling Command.\n\n");
 			else if(string[2] == '3') //the follow request was a success
 				printf("client: successfully followed\n");
 			else if(string[2] == '2') //the follow request was a failure
@@ -269,7 +306,7 @@ int main( int argc, char *argv[] )
 			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
                         if(string[0] != '1' && string[1] != '3') //the flags are not valid
-                                DieWithError("client: Error: received a packet from unknown source. ");
+                                printf("\n\nUnknown Message Received. Canceling Command.");
                         else if(string[2] == '3') //the drop request was a success
                                 printf("client: successfully Unfollowed\n");
                         else if(string[2] == '2') //the dorp request was a failure
@@ -280,8 +317,31 @@ int main( int argc, char *argv[] )
                 else
                         DieWithError("client: Error: invalid input. ");
 	}
-	else if(strcmp(string, "4") == 0) //this aspect is not yet implemented into the program
-		tweet();
+	else if(strcmp(string, "4") == 0){ //this aspect is not yet implemented into the program
+		printf("\nPlease enter your desired tweet. [Max 140 characters]\n");
+		if((nread = getline( &string, &stringLen, stdin)) != -1){
+			char *tweet = (char *) malloc(MAX_TWEET + 1);
+			strcpy(tweet, string);
+			tweet[ (int) strlen(tweet)] = '\0';
+			strcpy(string, "040");
+			strcat(string, thisHandle);
+			strcat(string, "$");
+			if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof(servAddr))!=strlen(string))
+				DieWithError("client: Error: Socket Error. ");
+			strcpy(string, "");
+			fromSize = sizeof(fromAddr);
+			if((respStringLen = recvfrom(sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize))>MAX_MESSAGE)
+				DieWithError("client: Error: received a packet from unknown source. ");
+			printf("Received the following string from server: %s\n", string);
+			printf("This is the tweet we wrote: %s\n", tweet);
+			/*
+ 			*Fill in circle
+ 			*/
+			free(tweet);
+		}
+		else
+			DieWithError("client: Error: invalid input. ");
+	}
 	else if(strcmp(string, "Q") == 0 || strcmp(string, "q") == 0){ //quit
 		strcpy(string, "060"); //flags for starting a quitting request
 		strcat(string, thisHandle); //the stored handle is sent
@@ -294,7 +354,7 @@ int main( int argc, char *argv[] )
 		if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                 DieWithError("client: Error: received a packet from unknown source. ");
 		if(string[0] != '1' && string[1] != '6') //the flags are not valid
-                                DieWithError("client: Error: received a packet from unknown source. ");
+                                printf("\n\nUnknown Command Received. Force Quit.\n\n");
 		else if(string[2] == '3') //success
 			printf("client: successfully quite Tweeter\n");
 		else //faiure
