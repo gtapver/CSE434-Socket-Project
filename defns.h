@@ -28,9 +28,7 @@
 struct User{ //structure to hold user information
 	char handle[MAX_HANDLE+2]; //handle of user
 	char ip[MAX_IP+1]; //ip address of user
-	char servPort[MAX_PORT_LENGTH+1]; //server facing port
-	char inputPort[MAX_PORT_LENGTH+1]; //input port
-	char outputPort[MAX_PORT_LENGTH+1]; //output port
+	char peerPort[MAX_PORT_LENGTH+1]; //input port
 	struct Node *followerList; //linked list of followers
 	int followCount;
 };
@@ -44,9 +42,7 @@ struct User *mkNewUser(){ //create an empty user struct with NULL follower list
 	//Instantiate the elements
 	strcpy(newUser->handle, ""); 
 	strcpy(newUser->ip, "");
-	strcpy(newUser->servPort, "");
-	strcpy(newUser->inputPort, "");
-	strcpy(newUser->outputPort, "");
+	strcpy(newUser->peerPort, "");
 	newUser->followerList = NULL;
 	newUser->followCount = 0;
 	return newUser;
@@ -162,9 +158,7 @@ void print(struct Node *list){ //this command will be used in the tracker and wi
 			//print the handle, ip, server facing port, input port, output port, and a list of followers, in that order
 			printf("\nHandle: %s\n", nodeptr->thisUser->handle);
 			printf("IP: %s\n", nodeptr->thisUser->ip);
-			printf("Server Facing Port: %s\n", nodeptr->thisUser->servPort);
-			printf("Input Port: %s\n", nodeptr->thisUser->inputPort);
-			printf("Output Port: %s\n", nodeptr->thisUser->outputPort);
+			printf("Peer2Peer Port: %s\n", nodeptr->thisUser->peerPort);
 			printFollowers(nodeptr->thisUser);
 			nodeptr = nodeptr->nextNode;
 		}

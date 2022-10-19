@@ -35,20 +35,10 @@ void printMenu(){
 	return;
 }
 
-void tweet(){
-	printf("\nYou Chose to Tweet\n");
-	return;
-}
-
-void quitTweeter(){
-	printf("\nYou Chose to Quit\n");
-	return;
-}
-
 int main( int argc, char *argv[] )
 {
     size_t nread;
-    int sock;                        // Socket descriptor
+    int servSock;                        // Socket descriptor for server socket
     struct sockaddr_in servAddr; // Server address
     struct sockaddr_in fromAddr;     // Source address of message
     unsigned short servPort;     // Server port
@@ -58,16 +48,16 @@ int main( int argc, char *argv[] )
     size_t stringLen = MAX_MESSAGE;               // Length of string to tweet
     int respStringLen;               // Length of received response
     
-    int inputSock;
-    struct sockaddr_in servFacingAddr;
-    struct sockaddr_in inputAddr;
-    struct sockaddr_in outputAddr;
-    unsigned short servFacingPort;  //local server facing port
-    unsigned short inputPort;     //local input port
-    unsigned short outputPort;    //local output port
+    int peerSock;
+    struct sockaddr_in peerAddr;
+    //reuse fromAddr as server clntAddr
+    //reuse respStringLen for length of incoming message
+    //reuse string as buffer
+    unsigned short peerPort;     //local peer2peer, set later
+
     char *thisHandle = (char *) malloc(MAX_HANDLE);
-    char *rightHandle = (char *) malloc(MAX_HANDLE);
-    strcpy(rightHandle, "");
+    char *peerHandle = (char *) malloc(MAX_HANDLE);
+    strcpy(peerHandle, "");
     char *thisIP = (char *) malloc(MAX_IP);
     string = (char *) malloc( MAX_MESSAGE );
 
@@ -76,7 +66,6 @@ int main( int argc, char *argv[] )
     struct timeval tv;
     int retval;
 
-    //servIP = "10.120.70.106";  //set server IP address (dotted decimal)
     if( argc < 2){ //make sure the ip is passed on the arguments
 	fprintf( stderr, "Usage: %s <Server IP address>\n", argv[0] );
 	exit(1);
@@ -87,7 +76,7 @@ int main( int argc, char *argv[] )
     printf( "client: Arguments passed: server IP %s, port %d\n", servIP, servPort );
 
     // Create a datagram/UDP socket
-    if( ( sock = socket( PF_INET, SOCK_DGRAM, IPPROTO_UDP ) ) < 0 )
+    if( ( servSock = socket( PF_INET, SOCK_DGRAM, IPPROTO_UDP ) ) < 0 )
         DieWithError( "client: socket() failed" );
 
     // Construct the server address structure
@@ -98,7 +87,7 @@ int main( int argc, char *argv[] )
 
     //Register the User with the server
     printf("\nPlease select handle, IP address, and ports to use");
-    printf("\nInput in format: \n@<handle> <IP Address> <Server Facing Port> <Input Port> <Output Port>:\n");
+    printf("\nInput in format: \n@<handle> <IP Address> <Peer2Peer Port>:\n");
     if( ( nread = getline( &string, &stringLen, stdin ) ) != -1 )
     {
 	//Instantiate field
@@ -118,31 +107,21 @@ int main( int argc, char *argv[] )
 	strcat(tmp, thisIP);
 	//read and pass ports
 	char *token = (char *) malloc( MAX_MESSAGE);
-	//read and pass server facing port
+	//read and pass peer port
 	strcpy(token, strtok(NULL, " "));
-	servFacingPort = atoi(token);
+	peerPort = atoi(token);
 	strcat(tmp, "$");
 	strcat(tmp, token);
-	//read and pass input port
-	strcpy(token, strtok(NULL, " "));
-	inputPort = atoi(token);
 	strcat(tmp, "$");
-	strcat(tmp, token);
-	//read and pass output port
-	strcpy(token, strtok(NULL, " "));
-	outputPort = atoi(token);
-	strcat(tmp, "$");
-	strcat(tmp, token);
-	free(token);
         //store the temporary string in the message buffer
 	string = tmp;
 	string[ (int) strlen( string) - 1] = '\0';
 	//send message
-	if( sendto( sock, string, strlen( string ), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) )
+	if( sendto( servSock, string, strlen( string ), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) )
 		DieWithError( "client: sendto() sent a different number of bytes than expected" );
 	fromSize = sizeof( fromAddr );
 	//receive message
-	if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE )
+	if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE )
 		DieWithError("client: Error: received a packet from unknown source.\n");
 	string[ respStringLen ] = '\0';
 	if( servAddr.sin_addr.s_addr != fromAddr.sin_addr.s_addr )
@@ -155,18 +134,15 @@ int main( int argc, char *argv[] )
     else
 	DieWithError(" client: error reading handle, IP, or ports\n");
 
-
-    //setup the ports
-    // Construct the peer address structure. Leave the peer's IP address and port number to be set later.
-    memset( &outputAddr,0, sizeof(outputAddr));
-    outputAddr.sin_family = AF_INET;
-    
-    // Construct local address structure
-    memset( &inputAddr, 0, sizeof(inputAddr));
-    inputAddr.sin_family = AF_INET;
-    inputAddr.sin_addr.s_addr =htonl( INADDR_ANY );
-    inputAddr.sin_port = htons( inputPort );
-            
+    //setup local peer2peer port to read incoming tweets
+    if((peerSock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
+	DieWithError(" client: socket() failed");
+    memset( &peerAddr, 0, sizeof(peerAddr));
+    peerAddr.sin_family = AF_INET;
+    peerAddr.sin_addr.s_addr = htonl( INADDR_ANY);
+    peerAddr.sin_port = htons( peerPort);
+    if( bind(peerSock, (struct sockaddr *) &peerAddr, sizeof(peerAddr)) < 0)
+	DieWithError(" client: bind() failed");
 
 
     while(1) //read inputs from user
@@ -176,7 +152,7 @@ int main( int argc, char *argv[] )
 	do{ //in this loop, we will alternate between reading input and recv from the socket
 		FD_ZERO(&rfds);
 		FD_SET(0, &rfds);
-    		tv.tv_sec = 2;
+    		tv.tv_sec = 1;
     		tv.tv_usec = 0;
 		retval = select(1, &rfds, NULL, NULL, &tv);
 		if(retval == -1) //some error occured
@@ -190,19 +166,22 @@ int main( int argc, char *argv[] )
 				DieWithError(" client: error reading option selected" ); //failed to read
 		else{//the timer is finished. we should check for any incoming tweets now
 			FD_ZERO(&rfds);
-			FD_SET(sock, &rfds);
+			FD_SET(peerSock, &rfds);
 			//read for half a second
 			tv.tv_sec = 0;
 			tv.tv_usec = 500000;
-			retval = select(sock+1, &rfds, NULL, NULL, &tv); //recv for 0.5 seconds, this is for when there is an incoming tweet
+			retval = select(peerSock+1, &rfds, NULL, NULL, &tv); //recv for 0.5 seconds, this is for when there is an incoming tweet
 			if(retval == -1)
 				DieWithError("client: Error: timer failure\n");
 			else if(retval){ //some input available
-				if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+				if( ( respStringLen = recvfrom( peerSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
+				/*
+ 				*set up a circle
+ 				*/ 
 			}
-			else //nothing to recv
-				printf("\nNo Data\n");
+			//else
+			//	printf("\nTried Reading\n");
 		}
 	}while(1);
 	//the selection was stored in the message buffer
@@ -210,11 +189,11 @@ int main( int argc, char *argv[] )
 		strcpy(string, "010"); //message being sent, this is just the flags
 		string[ (int) strlen( string )] = '\0';
 		//send message
-		if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
+		if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
 			DieWithError( "client: Error: unable to send message");
 		fromSize = sizeof( fromAddr );
 		//recv message
-		if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+		if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
 			DieWithError("client: Error: received a packet from unknown source. ");
 		if(string[0] == '1' && string[1] == '1' && (string[2] == '1' || string[2] == '3')){//ensure received message has valid flags
 			bool moreIncoming;//boolean to see how many more messages we will be receiving from the tracker
@@ -233,7 +212,7 @@ int main( int argc, char *argv[] )
 				currCount++;
 			}
 			while(moreIncoming){ //if we are expecting more message from the tracker
-				if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+				if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
 					DieWithError("client: Error: received a packet from unknown source. ");
 				if(string[0] != '1' || string[1] != '1' || (string[2] != '1' && string[2] != '3')) //if the message is not in progress or successful
 					DieWithError("client: Error: received an unknown message"); //error
@@ -264,11 +243,11 @@ int main( int argc, char *argv[] )
 			string[ (int) strlen( string )] = '\0';
 			free(tmp); //free the temporary buffer
 			//send message
-			if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
+			if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
 				DieWithError("client: Error: Socket Error. ");
 			//receive message
 			fromSize = sizeof( fromAddr );
-			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+			if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
 			if(string[0] != '1' && string[1] != '2') //the flags were not valid
 				printf("\n\nUnknown Message Received. Canceling Command.\n\n");
@@ -299,11 +278,11 @@ int main( int argc, char *argv[] )
                         string[ (int) strlen( string )] = '\0';
                         free(tmp);
                         //send message
-                        if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
+                        if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
                                 DieWithError("client: Error: Socket Error. ");
                         //receive message
                         fromSize = sizeof( fromAddr );
-			if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+			if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
                         if(string[0] != '1' && string[1] != '3') //the flags are not valid
                                 printf("\n\nUnknown Message Received. Canceling Command.");
@@ -326,17 +305,21 @@ int main( int argc, char *argv[] )
 			strcpy(string, "040");
 			strcat(string, thisHandle);
 			strcat(string, "$");
-			if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof(servAddr))!=strlen(string))
+			if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof(servAddr))!=strlen(string))
 				DieWithError("client: Error: Socket Error. ");
 			strcpy(string, "");
 			fromSize = sizeof(fromAddr);
-			if((respStringLen = recvfrom(sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize))>MAX_MESSAGE)
+			if((respStringLen = recvfrom(servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize))>MAX_MESSAGE)
 				DieWithError("client: Error: received a packet from unknown source. ");
 			printf("Received the following string from server: %s\n", string);
 			printf("This is the tweet we wrote: %s\n", tweet);
 			/*
  			*Fill in circle
  			*/
+			//at this point, the tweet circle has successfully completed
+			strcpy(string, "153");
+			if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr)) != strlen(string))
+				DieWithError("client: Error: Socket Error. ");
 			free(tweet);
 		}
 		else
@@ -347,11 +330,11 @@ int main( int argc, char *argv[] )
 		strcat(string, thisHandle); //the stored handle is sent
 		strcat(string, "$");
 		//send message
-		if(sendto(sock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
+		if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) ) //send message
                                DieWithError("client: Error: Socket Error. ");
 		//receive message
 		fromSize = sizeof( fromAddr );
-		if( ( respStringLen = recvfrom( sock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+		if( ( respStringLen = recvfrom( servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                 DieWithError("client: Error: received a packet from unknown source. ");
 		if(string[0] != '1' && string[1] != '6') //the flags are not valid
                                 printf("\n\nUnknown Command Received. Force Quit.\n\n");
@@ -364,8 +347,8 @@ int main( int argc, char *argv[] )
 	else //none of the selected options are valid
 		printf("\n\nPlease Choose Valid Choice\n\n");
     }
-    quitTweeter();
-    close( sock );
+    close( servSock );
+    close( peerSock );
     exit( 0 );
 }
 
