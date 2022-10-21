@@ -25,7 +25,7 @@
 
 
 
-int timeout(int fd, int sec, int usec){
+int timeout(int fd, int sec, int usec){ //function to read from specified file descriptor until either some input is detected OR the timer times out
         fd_set rfds;
         struct timeval tv;
 
@@ -35,7 +35,7 @@ int timeout(int fd, int sec, int usec){
         tv.tv_usec = usec;
         return select(fd+1, &rfds, NULL, NULL, &tv);
 }
-char* intToStr(int integer){
+char* intToStr(int integer){ //converts an integer to a string
 	int len = snprintf( NULL, 0, "%d", integer);
 	char *answer = malloc(len + 1);
 	snprintf( answer, len + 1, "%d", integer);
