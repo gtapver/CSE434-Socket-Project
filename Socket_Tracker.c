@@ -1,12 +1,3 @@
-// Implements the server side of an echo client-server application program.
-// The client reads ITERATIONS strings from stdin, passes the string to the
-// this server, which simply sends the string back to the client.
-//
-// Compile on general.asu.edu as:
-//   g++ -o server UDPEchoServer.c
-//
-// Only on general3 and general4 have the ports >= 1024 been opened for
-// application programs.
 #include <stdio.h>      // for printf() and fprintf()
 #include <sys/socket.h> // for socket() and bind()
 #include <arpa/inet.h>  // for sockaddr_in and inet_ntoa()
@@ -198,7 +189,7 @@ int main( int argc, char *argv[] )
                                         DieWithError("server: sentto() sent a different number of bytes than expected" );
 				break;
 			case '4': //tweet
-				memmove(buffer, buffer+3, strlen(buffer));
+				memmove(buffer, buffer+3, strlen(buffer)); //clear buffer
 				following = strtok(buffer, "$"); //handle in this field
 				struct User *handle = findUser(userList, following); //find the user struct that matches the handle provided
 				memset(buffer, 0, sizeof(buffer));
