@@ -188,6 +188,11 @@ int main( int argc, char *argv[] )
 					//find your place in the follower list as well as the size of list
 					int place = atoi(strtok(NULL, "$"));
 					int count = atoi(strtok(NULL, "$"));
+					for(int i = 0; i < place - 1; i ++){
+						for(int k = 0; k < 3; k++)
+							strtok(NULL, "$");
+					}
+					printf("This tweet was forwarded from the following user: %s", strtok(NULL, "$"));
 					free(editable);
 					//prepare forwarding the message
 					if(place < count){ //forward the message
