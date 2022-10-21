@@ -50,28 +50,26 @@ int main( int argc, char *argv[] )
     
     int peerSock;
     struct sockaddr_in peerAddr;
+    struct sockaddr_in forwardAddr;
     //reuse fromAddr as server clntAddr
     //reuse respStringLen for length of incoming message
     //reuse string as buffer
     unsigned short peerPort;     //local peer2peer, set later
 
+    int retval;
+
     char *thisHandle = (char *) malloc(MAX_HANDLE);
-    char *peerHandle = (char *) malloc(MAX_HANDLE);
-    strcpy(peerHandle, "");
+    char *rightHandle = (char *) malloc(MAX_HANDLE);
+    strcpy(rightHandle, " ");
     char *thisIP = (char *) malloc(MAX_IP);
     string = (char *) malloc( MAX_MESSAGE );
-
-    //setup timeout timer
-    fd_set rfds;
-    struct timeval tv;
-    int retval;
 
     if( argc < 2){ //make sure the ip is passed on the arguments
 	fprintf( stderr, "Usage: %s <Server IP address>\n", argv[0] );
 	exit(1);
     }
     servIP = argv[ 1 ];
-    servPort = atoi( "46499" );  //Use given port
+    servPort = atoi( "46498" );  //Use given port
 
     printf( "client: Arguments passed: server IP %s, port %d\n", servIP, servPort );
 
@@ -105,16 +103,14 @@ int main( int argc, char *argv[] )
 	//read and pass IP
 	strcpy(thisIP, strtok(NULL, " "));
 	strcat(tmp, thisIP);
-	//read and pass ports
-	char *token = (char *) malloc( MAX_MESSAGE);
-	//read and pass peer port
-	strcpy(token, strtok(NULL, " "));
-	peerPort = atoi(token);
 	strcat(tmp, "$");
-	strcat(tmp, token);
+	//read and pass peer port
+	peerPort = (unsigned short) atoi( strtok(NULL, "\n"));
+	strcat(tmp, intToStr(peerPort));
 	strcat(tmp, "$");
         //store the temporary string in the message buffer
-	string = tmp;
+	memset( string, 0, strlen(string));
+	strcpy(string, tmp);
 	string[ (int) strlen( string) - 1] = '\0';
 	//send message
 	if( sendto( servSock, string, strlen( string ), 0, (struct sockaddr *) &servAddr, sizeof( servAddr ) ) != strlen(string) )
@@ -144,17 +140,19 @@ int main( int argc, char *argv[] )
     if( bind(peerSock, (struct sockaddr *) &peerAddr, sizeof(peerAddr)) < 0)
 	DieWithError(" client: bind() failed");
 
+    // Construct the forwarding tweet structure
+    memset( &forwardAddr, 0, sizeof( forwardAddr ) ); // Zero out structure
+    forwardAddr.sin_family = AF_INET;                  // Use internet addr family
+    //forwardAddr.sin_addr.s_addr = inet_addr( servIP ); // Set server's IP address
+    //forwardAddr.sin_port = htons( servPort );      // Set server's port                
+
 
     while(1) //read inputs from user
     {
 	printMenu();
 	//read input	
 	do{ //in this loop, we will alternate between reading input and recv from the socket
-		FD_ZERO(&rfds);
-		FD_SET(0, &rfds);
-    		tv.tv_sec = 1;
-    		tv.tv_usec = 0;
-		retval = select(1, &rfds, NULL, NULL, &tv);
+		retval = timeout(0, 1, 0);
 		if(retval == -1) //some error occured
 			DieWithError("client: Error: timer failure\n");
 		else if (retval) //there is some input available
@@ -165,20 +163,90 @@ int main( int argc, char *argv[] )
 			else
 				DieWithError(" client: error reading option selected" ); //failed to read
 		else{//the timer is finished. we should check for any incoming tweets now
-			FD_ZERO(&rfds);
-			FD_SET(peerSock, &rfds);
-			//read for half a second
-			tv.tv_sec = 0;
-			tv.tv_usec = 500000;
-			retval = select(peerSock+1, &rfds, NULL, NULL, &tv); //recv for 0.5 seconds, this is for when there is an incoming tweet
+			retval = timeout(peerSock, 0, 500000);
 			if(retval == -1)
 				DieWithError("client: Error: timer failure\n");
 			else if(retval){ //some input available
 				if( ( respStringLen = recvfrom( peerSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
                                         DieWithError("client: Error: received a packet from unknown source. ");
-				/*
- 				*set up a circle
- 				*/ 
+				printf("\nclient: received following message: ``%s''\n", string);
+				if(string[0] == '0' && string[1] == '4' && string[2] == '1'){ //incoming tweet
+					/*
+ 					message will be in form:
+					(Flag)(Tweet)$(Place In List)$(Follower Count)$[List of followers]
+					*/
+					char *editable = (char *) malloc(MAX_MESSAGE);
+					strcpy(editable, string);
+					strtok(editable, "$"); //skip tweet + flags
+					strtok(NULL, "$"); //skip place
+					strtok(NULL, "$"); //skip count
+					printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+					printf("Received the following tweet from %s\n", strtok(NULL, "$")); //print handle
+					strcpy(editable, string);
+					printf("``%s''\n", strtok(editable + 3, "$")); //print tweet, remember to skip flags
+					printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n");
+					//find your place in the follower list as well as the size of list
+					int place = atoi(strtok(NULL, "$"));
+					int count = atoi(strtok(NULL, "$"));
+					free(editable);
+					//prepare forwarding the message
+					if(place < count){ //forward the message
+						place++;
+						char *tmp = (char *) malloc(MAX_MESSAGE);
+						int delta;
+
+						string[ strlen(string) ] = '\0';
+						//parse tweet + flag
+						strcpy(tmp, strtok(string, "$"));
+						strcat(tmp, "$");
+						delta = strlen(tmp);
+						//skip over place
+						delta += strlen(strtok(NULL, "$")) + 1;
+						//copy the new place into buffer
+						strcat(tmp, intToStr(place));
+						strcat(tmp, "$");
+						//parse the remaining string
+						strcat(tmp, strtok(NULL, "\0"));
+						memset(string, 0, strlen(string));
+						strcpy(string, tmp);
+
+						//find forwarding address
+						strtok(tmp, "$");
+						strtok(NULL, "$");
+						strtok(NULL, "$");
+						for(int i = 0; i < place; i++)
+							for(int k = 0; k < 3; k++)
+								strtok(NULL, "$");
+						char *tmpHandle = strtok(NULL, "$");
+						if(strcmp(tmpHandle, rightHandle) != 0){ //setup the ring
+							printf("Updating our right neighbor\n");
+							memset(rightHandle, 0, strlen(rightHandle));
+							strcpy(rightHandle, tmpHandle);
+							forwardAddr.sin_addr.s_addr = inet_addr( strtok(NULL, "$") ); // Set server's IP address
+							forwardAddr.sin_port = htons( atoi( strtok(NULL, "$") ) );      // Set server's port
+						}
+						//store buffer in string
+						free(tmp);
+					}
+					else{ //return to sender
+						strtok(string, "$");
+						for(int i = 0; i < 2; i++)
+							strtok(NULL, "$");
+						char *tmpHandle = strtok(NULL, "$");
+						if(strcmp(tmpHandle, rightHandle) != 0){
+							printf("Updating our right neighbor\n");
+							strcpy(rightHandle, tmpHandle);
+							forwardAddr.sin_addr.s_addr = inet_addr( strtok(NULL, "$") );
+							forwardAddr.sin_port = htons( atoi( strtok(NULL, "$") ) );
+						}
+						strcpy(string,"153"); 
+					}
+					printf("client: sending following string: ``%s'' to user %s\n", string, rightHandle);
+					if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &forwardAddr, sizeof( forwardAddr)) != strlen(string))
+							DieWithError("client: Error: unable to send message");
+					
+				}
+				printMenu();
 			}
 			//else
 			//	printf("\nTried Reading\n");
@@ -296,30 +364,100 @@ int main( int argc, char *argv[] )
                 else
                         DieWithError("client: Error: invalid input. ");
 	}
-	else if(strcmp(string, "4") == 0){ //this aspect is not yet implemented into the program
+	else if(strcmp(string, "4") == 0){
 		printf("\nPlease enter your desired tweet. [Max 140 characters]\n");
 		if((nread = getline( &string, &stringLen, stdin)) != -1){
 			char *tweet = (char *) malloc(MAX_TWEET + 1);
 			strcpy(tweet, string);
-			tweet[ (int) strlen(tweet)] = '\0';
+			tweet[ (int) strlen(tweet) - 1] = '\0';
 			strcpy(string, "040");
 			strcat(string, thisHandle);
 			strcat(string, "$");
 			if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof(servAddr))!=strlen(string))
 				DieWithError("client: Error: Socket Error. ");
-			strcpy(string, "");
+			memset(string, 0, strlen(string));
 			fromSize = sizeof(fromAddr);
 			if((respStringLen = recvfrom(servSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize))>MAX_MESSAGE)
 				DieWithError("client: Error: received a packet from unknown source. ");
-			printf("Received the following string from server: %s\n", string);
-			printf("This is the tweet we wrote: %s\n", tweet);
-			/*
- 			*Fill in circle
- 			*/
-			//at this point, the tweet circle has successfully completed
-			strcpy(string, "153");
-			if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr)) != strlen(string))
-				DieWithError("client: Error: Socket Error. ");
+			printf("\nReceived the following string from server: ``%s''\n", string);
+			
+			if(string[0] != '1' || string[1] != '4'){
+				DieWithError("client: Error: Unknown Message");
+			}
+			else if(string[2] == '1'){
+				char *tmp = (char *) malloc(MAX_MESSAGE);
+				strcpy(tmp, "041"); //flags
+				strcat(tmp, tweet); //tweet
+				strcat(tmp, "$1$"); //place in follower list
+				int count = atoi( strtok(string + 3, "$"));
+				strcat(tmp, intToStr(count)); //follower count
+				strcat(tmp, "$");
+				strcat(tmp, thisHandle);//poster handle
+				strcat(tmp, "$");
+				strcat(tmp, thisIP);
+				strcat(tmp, "$");
+				strcat(tmp, intToStr((int) peerPort));
+				strcat(tmp, "$");
+				char *peer = (char *) malloc(50);
+				strcpy(peer, strtok(NULL, "$"));
+				if(strcmp(peer, rightHandle) != 0){
+					memset(rightHandle, 0, strlen(rightHandle));
+					strcpy(rightHandle, peer);
+					strcat(tmp, rightHandle);
+					strcat(tmp, "$");
+
+					memset(peer, 0, strlen(peer));
+					strcpy(peer, strtok(NULL, "$"));
+					strcat(tmp, peer);
+					strcat(tmp, "$");
+					forwardAddr.sin_addr.s_addr = inet_addr( peer );
+
+					memset(peer, 0, strlen(peer));
+					strcpy(peer, strtok(NULL, "$"));
+					strcat(tmp, peer);
+					strcat(tmp, "$");
+					forwardAddr.sin_port = htons( atoi ( peer ) );
+				}
+				else{
+					strcat(tmp, peer);
+					strcat(tmp, "$");
+					for(int i = 0; i < 2; i++){
+						strcat(tmp, strtok(NULL, "$"));
+						strcat(tmp, "$");
+					}
+				}
+				free(peer);
+				for(int i = 0; i < count - 1; i++)
+					for(int k = 0; k < 3; k++){
+						strcat(tmp, strtok(NULL, "$"));
+						strcat(tmp, "$");
+					}
+				strcpy(string, tmp);
+				free(tmp);
+				printf("client: sending following string to peer: ``%s''\n", string);
+				
+				if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &forwardAddr, sizeof( forwardAddr)) != strlen(string))
+					DieWithError("client: Error: unable to send message");
+
+				memset(string, 0, strlen(string));
+				if( ( respStringLen = recvfrom( peerSock, string, MAX_MESSAGE, 0, (struct sockaddr *) &fromAddr, &fromSize ) ) > MAX_MESSAGE ) //receive message
+					DieWithError("client: Error: Read Error");
+				printf("client: received following string: ``%s''\n", string);
+				if(strcmp(string, "153") == 0)
+					printf("Tweet Successfully Propogated!\n");
+				else
+					printf("Tweet Failed!\n");
+
+				strcpy(string, "153");
+                        	if(sendto(servSock, string, strlen(string), 0, (struct sockaddr *) &servAddr, sizeof( servAddr)) != strlen(string))
+                                	DieWithError("client: Error: Socket Error. ");	
+			}
+			else if(string[2] == '2'){
+				DieWithError("client: Error: Not Registered With Server");
+			}
+			else if(string[2] == '3'){
+				printf("We Have No Followers!\n");
+			}
 			free(tweet);
 		}
 		else
@@ -339,7 +477,7 @@ int main( int argc, char *argv[] )
 		if(string[0] != '1' && string[1] != '6') //the flags are not valid
                                 printf("\n\nUnknown Command Received. Force Quit.\n\n");
 		else if(string[2] == '3') //success
-			printf("client: successfully quite Tweeter\n");
+			printf("client: successfully quit Tweeter\n");
 		else //faiure
 			printf("client: could not delete user from database\n");
 		break; //exit while loop

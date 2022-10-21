@@ -25,6 +25,22 @@
 
 
 
+int timeout(int fd, int sec, int usec){
+        fd_set rfds;
+        struct timeval tv;
+
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        tv.tv_sec = sec;
+        tv.tv_usec = usec;
+        return select(fd+1, &rfds, NULL, NULL, &tv);
+}
+char* intToStr(int integer){
+	int len = snprintf( NULL, 0, "%d", integer);
+	char *answer = malloc(len + 1);
+	snprintf( answer, len + 1, "%d", integer);
+	return answer;
+}
 struct User{ //structure to hold user information
 	char handle[MAX_HANDLE+2]; //handle of user
 	char ip[MAX_IP+1]; //ip address of user

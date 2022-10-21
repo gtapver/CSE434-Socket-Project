@@ -33,7 +33,7 @@ int main( int argc, char *argv[] )
     int recvMsgSize;                 // Size of received message
     struct Node *userList = mkNewNode(); //pointer to the user list
     int userCount = 0; //count of active users
-    servPort = atoi("46499");  //local port (set)
+    servPort = atoi("46498");  //local port (set)
 
     // Create socket for sending/receiving datagrams
     if( ( sock = socket( PF_INET, SOCK_DGRAM, IPPROTO_UDP ) ) < 0 )
@@ -201,13 +201,16 @@ int main( int argc, char *argv[] )
 				memmove(buffer, buffer+3, strlen(buffer));
 				following = strtok(buffer, "$"); //handle in this field
 				struct User *handle = findUser(userList, following); //find the user struct that matches the handle provided
+				memset(buffer, 0, sizeof(buffer));
 				if(handle == NULL){ //the user was not found, do not send any tweet
 					strcpy(buffer, "142");
+					printf("server: sending following string ``%s''\n", buffer);
 					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 						DieWithError("server: sendto() sent a different number of bytes than expected");
 				}
 				else if(handle->followCount <= 0){ //the user was found, but has no followers, no tweet can be sent
 					strcpy(buffer, "143");
+					printf("server: sending following string ``%s''\n", buffer);
 					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 						DieWithError("server: sendto() sent a different number of bytes than expected");
 				}
@@ -230,6 +233,7 @@ int main( int argc, char *argv[] )
 						fList = fList->nextNode;
 					}
 					//send the list of followers
+					printf("server: sending following string ``%s''\n", buffer);
 					if(sendto(sock, buffer, strlen(buffer), 0, (struct sockaddr *) &clntAddr, sizeof(clntAddr)) != strlen(buffer))
 						DieWithError("server: sendto() sent a different number of bytes than expected.");
 					do{ //reject commands until such as time as the tweet is completed
