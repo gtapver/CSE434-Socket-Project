@@ -1,12 +1,3 @@
-// Implements the client side of an echo client-server application program.
-// The client reads ITERATIONS strings from stdin, passes the string to the
-// server, which simply echoes it back to the client.
-//
-// Compile on general.asu.edu as:
-//   g++ -o client UDPEchoClient.c
-//
-// Only on general3 and general4 have the ports >= 1024 been opened for
-// application programs.
 #include <stdio.h>      // for printf() and fprintf()
 #include <sys/socket.h> // for socket(), connect(), sendto(), and recvfrom()
 #include <arpa/inet.h>  // for sockaddr_in and inet_addr()
