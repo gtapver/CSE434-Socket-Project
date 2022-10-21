@@ -192,7 +192,7 @@ int main( int argc, char *argv[] )
 						for(int k = 0; k < 3; k++)
 							strtok(NULL, "$");
 					}
-					printf("This tweet was forwarded from the following user: %s", strtok(NULL, "$"));
+					printf("This tweet was forwarded from the following user: %s\n", strtok(NULL, "$"));
 					free(editable);
 					//prepare forwarding the message
 					if(place < count){ //forward the message
